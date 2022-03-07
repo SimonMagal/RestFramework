@@ -1,70 +1,14 @@
-from .serializers import ArticleSerializer, ArticleCategorySerializer, ArticleTagSerializer, ArticleCommentSerializer
+from .serializers import ArticleSerializer, ArticleCategorySerializer, ArticleTagSerializer, ArticleCommentSerializer, UserSerializer
 from app.models import Article, ArticleCategory, ArticleTag, ArticleComment
-from rest_framework.views import APIView
-from django.http import Http404
-from rest_framework.response import Response
+from rest_framework import permissions
 from rest_framework import generics
 from rest_framework import mixins
-
-
-"""
-class ArticleView(APIView):
-    def get_object(self, pk):
-        try:
-            return Article.objects.get(pk)
-        except Article.DoesNotExist:
-            raise Http404
-
-    def get(self, request, pk, format=None):
-        article = self.get_object(pk)
-        serializer = ArticleSerializer(article)
-        return Response(serializer.data)
-
-
-class ArticleCategoryView(APIView):
-    def get_object(self, pk):
-        try:
-            return ArticleCategory.objects.get(pk)
-        except ArticleCategory.DoesNotExist:
-            raise Http404
-
-    def get(self, request, pk, format=None):
-        category = self.get_object(pk)
-        serializer = ArticleCategorySerializer(category)
-        return Response(serializer.data)
-
-
-class ArticleTagView(APIView):
-    def get_object(self, pk):
-        try:
-            return ArticleTag.objects.get(pk)
-        except ArticleTag.DoesNotExist:
-            raise Http404
-
-    def get(self, request, pk, format=None):
-        tag = self.get_object(pk)
-        serializer = ArticleTagSerializer(tag)
-        return Response(serializer.data)
-
-
-class ArticleCommentView(APIView):t
-    def get_object(self, pk):
-        try:
-            return ArticleComment.objects.get(pk)
-        except ArticleComment.DoesNotExist:
-            raise Http404
-
-    def get(self, request, pk, format=None):
-        comment = self.get_object(pk)
-        serializer = ArticleCommentSerializer(comment)
-        return Response(serializer.data)
-
-    def post(self, request, pk, format=None):
-        comment = self.get_object(pk)
-        serializer = ArticleCommentSerializer(comment)
-"""
-
-
+from django.contrib.auth.models import User
+from .permissions import IsOwnerOrReadOnly
+from rest_framework.decorators import api_view, action
+from rest_framework.response import Response
+from rest_framework.reverse import reverse
+from rest_framework import renderers, viewsets
 
 class ArticleView(mixins.RetrieveModelMixin,
                   mixins.UpdateModelMixin,
@@ -72,6 +16,11 @@ class ArticleView(mixins.RetrieveModelMixin,
                   generics.GenericAPIView):
     queryset = Article.objects.all()
     serializer_class = ArticleSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly,
+                          IsOwnerOrReadOnly]
+
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
 
     def get(self, request, *args, **kwargs):
         return self.retrieve(request, *args, **kwargs)
@@ -83,11 +32,42 @@ class ArticleView(mixins.RetrieveModelMixin,
         return self.create(request, *args, **kwargs)
 
 
+"""
+class ArticleViewSet(viewsets.ModelViewSet):
+    queryset = Article.objects.all()
+    serializer_class = ArticleSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly]
+
+    @action(detail=True, renderer_classes=[renderers.StaticHTMLRenderer])
+    def highlight(self, request, *args, **kwargs):
+        article = self.get_object()
+        return Response(article.highlighted)
+
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
+"""
+
+
+class ArticleListView(mixins.ListModelMixin,
+                      generics.GenericAPIView):
+    queryset = Article.objects.all()
+    serializer_class = ArticleSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly,
+                          IsOwnerOrReadOnly]
+
+    def get(self, request, *args, **kwargs):
+        return self.list(request, *args, **kwargs)
+
+
 class ArticleCategoryView(mixins.RetrieveModelMixin,
                           mixins.CreateModelMixin,
+                          mixins.ListModelMixin,
                           generics.GenericAPIView):
     queryset = ArticleCategory.objects.all()
     serializer_class = ArticleCategorySerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly,
+                          IsOwnerOrReadOnly]
+
 
     def get(self, request, *args, **kwargs):
         return self.list(request, *args, **kwargs)
@@ -98,9 +78,12 @@ class ArticleCategoryView(mixins.RetrieveModelMixin,
 
 class ArticleTagView(mixins.RetrieveModelMixin,
                      mixins.CreateModelMixin,
+                     mixins.ListModelMixin,
                      generics.GenericAPIView):
     queryset = ArticleTag.objects.all()
     serializer_class = ArticleTagSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly,
+                          IsOwnerOrReadOnly]
 
     def get(self, request, *args, **kwargs):
         return self.list(request, *args, **kwargs)
@@ -111,15 +94,49 @@ class ArticleTagView(mixins.RetrieveModelMixin,
 
 class ArticleCommentView(mixins.RetrieveModelMixin,
                          mixins.CreateModelMixin,
+                         mixins.ListModelMixin,
                          generics.GenericAPIView):
     queryset = ArticleComment.objects.all()
     serializer_class = ArticleCommentSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly,
+                          IsOwnerOrReadOnly]
 
     def get(self, request, *args, **kwargs):
-        return self.list(request, *args, **kwargs)
+        return self.list(request, format=format)
 
     def post(self, request, *args, **kwargs):
         return self.create(request, *args, **kwargs)
 
     def delete(self, request, *args, **kwargs):
         return self.destroy(self, request, *args, **kwargs)
+
+
+
+
+class UserList(generics.ListAPIView):
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
+
+
+class UserDetail(generics.RetrieveAPIView):
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
+
+
+@api_view(['GET'])
+def api_root(request, format=None):
+    return Response({
+        'users': reverse('app.user-list', request=request, format=format),
+        'article': reverse('app.article', request=request, format=format)
+    })
+
+
+class ArticleHighlight(generics.GenericAPIView):
+    queryset = Article.objects.all()
+    renderer_classes = [renderers.StaticHTMLRenderer]
+
+    def get(self, request, *args, **kwargs):
+        article = self.get_object()
+        return Response(article.highlighted)
+
+
